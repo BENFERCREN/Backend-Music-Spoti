@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApp, videoIdFromUrl } from '../server.js';
+import { createApp, videoIdFromUrl, extractionFailure } from './server.js';
+
+test('extractor diagnostics classify failures without exposing raw output', () => {
+  assert.match(extractionFailure('Sign in to confirm you are not a bot https://secret.example'), /autenticacion/);
+  assert.match(extractionFailure('Requested format is not available'), /WebM/);
+  assert.match(extractionFailure('Video unavailable'), /disponible/);
+  assert.match(extractionFailure('JavaScript challenge failed'), /JavaScript/);
+  assert.match(extractionFailure('HTTP Error 429'), /limito/);
+  assert.ok(!extractionFailure('unknown https://secret.example').includes('secret.example'));
+});
 
 const key = 'test-private-key-with-32-characters';
 const id = 'abcdefghijk';

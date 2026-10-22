@@ -43,6 +43,25 @@ function audioUrl(raw) {
   return url.href;
 }
 
+export function extractionFailure(stderr = '') {
+  if (/sign in|confirm.*bot|login required|authentication/i.test(stderr)) {
+    return 'YouTube exige autenticacion para esta solicitud desde el hosting.';
+  }
+  if (/requested format.*not available|no video formats/i.test(stderr)) {
+    return 'YouTube no devolvio un formato WebM compatible. Revisa la version del extractor.';
+  }
+  if (/private video|video unavailable|not available in your country|age.restricted/i.test(stderr)) {
+    return 'Este video es privado, restringido o no esta disponible desde el hosting.';
+  }
+  if (/challenge|javascript|js runtime|ejs/i.test(stderr)) {
+    return 'Fallo el componente JavaScript del extractor. Revisa yt-dlp y su runtime en el backend.';
+  }
+  if (/HTTP Error 403|HTTP Error 429/i.test(stderr)) {
+    return 'YouTube rechazo o limito la solicitud desde el hosting.';
+  }
+  return 'No se pudo extraer el audio de YouTube. Revisa la version del extractor y prueba otra cancion.';
+}
+
 export function extract(target, { search = false } = {}) {
   return new Promise((resolve, reject) => {
     const args = ['-m', 'yt_dlp', '--ignore-config', '--no-warnings', '--no-playlist',
@@ -53,7 +72,7 @@ export function extract(target, { search = false } = {}) {
     args.push('--', target);
     const child = spawn(process.env.PYTHON || 'python', args, { windowsHide: true });
     const chunks = [];
-    let size = 0, settled = false;
+    let size = 0, settled = false, diagnostic = '';
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
@@ -65,8 +84,10 @@ export function extract(target, { search = false } = {}) {
       finish(new ServiceError(504, 'La consulta de musica tardo demasiado.'));
     }, 28000);
     child.on('error', () => finish(new ServiceError(503, 'No se pudo iniciar yt-dlp.')));
-    // Do not return upstream stderr, which may contain signed URLs or secrets.
-    child.stderr.resume();
+    // Keep bounded stderr only for classification; never expose its raw URLs or secrets.
+    child.stderr.on('data', chunk => {
+      diagnostic = (diagnostic + chunk.toString('utf8')).slice(-16384);
+    });
     child.stdout.on('data', chunk => {
       size += chunk.length;
       if (size > 4 * 1024 * 1024) {
@@ -75,8 +96,11 @@ export function extract(target, { search = false } = {}) {
       } else chunks.push(chunk);
     });
     child.on('close', code => {
-      if (code !== 0) return finish(new ServiceError(502,
-        'YouTube no permitio obtener esta musica. Prueba otra cancion.'));
+      if (code !== 0) {
+        const detail = extractionFailure(diagnostic);
+        console.error('[sirilo-music] yt-dlp:', detail);
+        return finish(new ServiceError(502, detail));
+      }
       try { finish(null, JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
       catch { finish(new ServiceError(502, 'Respuesta invalida del extractor.')); }
     });
