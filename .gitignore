@@ -1,0 +1,4 @@
+.local-api-key
+.env
+node_modules/
+*.log
