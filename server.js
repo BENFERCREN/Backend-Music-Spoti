@@ -93,6 +93,7 @@ export async function withCookieFile(source, action) {
 
 export async function extract(target, { search = false } = {}) {
   return withCookieFile(process.env.YTDLP_COOKIES_FILE, cookieFile => new Promise((resolve, reject) => {
+    console.info('[sirilo-music] extraccion:', search ? 'busqueda' : 'audio', 'cookies:', cookieFile ? 'cargadas' : 'sin configurar');
     const args = ['-m', 'yt_dlp', '--ignore-config', '--no-warnings', '--no-playlist',
       '--skip-download', '--socket-timeout', '12', '--retries', '1',
       '--extractor-retries', '1', '--js-runtimes', 'node', '--dump-single-json'];
@@ -155,6 +156,7 @@ export function createApp({
   extractor = extract,
   fetcher = fetch,
   now = Date.now,
+  cookiesFile = process.env.YTDLP_COOKIES_FILE || '',
 } = {}) {
   if (apiKey.length < 20) throw new Error('API_KEY debe tener al menos 20 caracteres.');
   const publicUrl = new URL(publicBaseUrl);
@@ -281,8 +283,22 @@ export function createApp({
         return;
       }
 
-      if (!['/search', '/stream'].includes(url.pathname)) throw new ServiceError(404, 'Ruta no encontrada.');
+      if (!['/search', '/stream', '/diagnostics'].includes(url.pathname)) throw new ServiceError(404, 'Ruta no encontrada.');
       if (!safeEqual(String(req.headers['x-api-key'] || ''), apiKey)) throw new ServiceError(401, 'Clave de backend incorrecta.');
+      if (url.pathname === '/diagnostics') {
+        let cookieStatus = 'not_configured';
+        if (cookiesFile) {
+          try {
+            await withCookieFile(cookiesFile, () => {});
+            cookieStatus = 'ready';
+          } catch { cookieStatus = 'unreadable_or_invalid'; }
+        }
+        return json(res, 200, {
+          version: 'cookies-diagnostics-v1',
+          cookies: { configured: Boolean(cookiesFile), status: cookieStatus },
+          youtubeAuthentication: 'not_verified',
+        });
+      }
       calls = calls.filter(time => time > now() - 60000);
       if (calls.length >= 120) throw new ServiceError(429, 'Limite de consultas. Espera un minuto.');
       calls.push(now());

@@ -13,3 +13,5 @@ Si las cookies caducan o YouTube revoca la sesion, reemplaza el archivo secreto 
 Los archivos de cookies se excluyen de Git y del contexto Docker. No pongas su contenido en variables publicas, logs ni config.lua. El archivo permite usar tu sesion: usa una cuenta sin informacion sensible. Este soporte esta probado con cookies ficticias; falta la prueba real con tu sesion.
 
 Documentacion de secretos: https://render.com/docs/configure-environment-variables#secret-files
+
+Diagnostico privado: GET /diagnostics con X-API-Key devuelve cookies.status: not_configured, unreadable_or_invalid o ready. ready confirma lectura y formato, no que YouTube acepte la sesion. En Logs cada extraccion indica cookies: cargadas o sin configurar, sin contenido ni rutas privadas.

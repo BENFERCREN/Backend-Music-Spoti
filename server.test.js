@@ -55,6 +55,18 @@ async function fixture(t, overrides = {}) {
 
 const streamPath = `/stream?format=webm&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`;
 
+test('diagnostics require authentication and do not expose cookie paths', async t => {
+  const { request } = await fixture(t, { cookiesFile: '' });
+  assert.equal((await request('/diagnostics', { headers: { 'X-API-Key': '' } })).status, 401);
+  const result = await (await request('/diagnostics')).json();
+  assert.deepEqual(result.cookies, { configured: false, status: 'not_configured' });
+  assert.equal(result.youtubeAuthentication, 'not_verified');
+  const invalid = await fixture(t, { cookiesFile: 'missing-private-cookie-file' });
+  const response = await (await invalid.request('/diagnostics')).json();
+  assert.deepEqual(response.cookies, { configured: true, status: 'unreadable_or_invalid' });
+  assert.ok(!JSON.stringify(response).includes('missing-private-cookie-file'));
+});
+
 test('YouTube URLs are constrained to valid video IDs and known hosts', () => {
   assert.equal(videoIdFromUrl(`https://www.youtube.com/watch?v=${id}`), id);
   assert.equal(videoIdFromUrl(`https://youtu.be/${id}`), id);
