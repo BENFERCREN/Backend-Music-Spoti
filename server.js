@@ -4,6 +4,9 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
+import { readFile, mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 const MAX_DURATION = 20 * 60;
@@ -62,13 +65,40 @@ export function extractionFailure(stderr = '') {
   return 'No se pudo extraer el audio de YouTube. Revisa la version del extractor y prueba otra cancion.';
 }
 
-export function extract(target, { search = false } = {}) {
-  return new Promise((resolve, reject) => {
+export async function withCookieFile(source, action) {
+  if (!source) return action(null);
+  let contents;
+  try {
+    contents = await readFile(source, 'utf8');
+    if (Buffer.byteLength(contents) > 1024 * 1024 ||
+        !/^# (?:Netscape HTTP Cookie File|HTTP Cookie File)/.test(contents) ||
+        !contents.split(/\r?\n/).some(line => {
+          const fields = line.replace(/^#HttpOnly_/, '').split('\t');
+          return fields.length === 7 && /^(?:\.)?(?:[\w-]+\.)*youtube\.com$/i.test(fields[0]);
+        })) throw new Error('invalid');
+  } catch {
+    throw new ServiceError(503, 'El archivo de cookies no se pudo leer o no contiene cookies de YouTube en formato Netscape.');
+  }
+  // yt-dlp writes its cookie jar on exit. Keep the mounted secret read-only
+  // and isolate concurrent extractions in private, disposable directories.
+  const directory = await mkdtemp(join(tmpdir(), 'sirilo-cookies-'));
+  try {
+    const file = join(directory, 'cookies.txt');
+    await writeFile(file, contents, { mode: 0o600 });
+    return await action(file);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+export async function extract(target, { search = false } = {}) {
+  return withCookieFile(process.env.YTDLP_COOKIES_FILE, cookieFile => new Promise((resolve, reject) => {
     const args = ['-m', 'yt_dlp', '--ignore-config', '--no-warnings', '--no-playlist',
       '--skip-download', '--socket-timeout', '12', '--retries', '1',
       '--extractor-retries', '1', '--js-runtimes', 'node', '--dump-single-json'];
     if (search) args.push('--flat-playlist');
     else args.push('--format', 'bestaudio[ext=webm][protocol=https]');
+    if (cookieFile) args.push('--cookies', cookieFile);
     args.push('--', target);
     const child = spawn(process.env.PYTHON || 'python', args, { windowsHide: true });
     const chunks = [];
@@ -104,7 +134,7 @@ export function extract(target, { search = false } = {}) {
       try { finish(null, JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
       catch { finish(new ServiceError(502, 'Respuesta invalida del extractor.')); }
     });
-  });
+  }));
 }
 
 function durationLabel(seconds) {

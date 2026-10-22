@@ -3,3 +3,6 @@ node_modules
 .env
 test
 *.zip
+
+**/*cookies*.txt
+**/*cookies*.json
