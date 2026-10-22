@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApp, videoIdFromUrl, extractionFailure } from './server.js';
+import { createApp, videoIdFromUrl, extractionFailure, extractionSignals } from './server.js';
+
+test('underlying session and JS failures take priority over missing format', () => {
+  const missing = '\nRequested format is not available';
+  assert.match(extractionFailure('cookies are no longer valid' + missing), /Renueva/);
+  assert.match(extractionFailure('n challenge solving failed' + missing), /JavaScript/);
+  assert.match(extractionFailure('PO Token required' + missing), /PO Token/);
+  assert.deepEqual(extractionSignals('cookies are no longer valid https://private.example' + missing), {
+    sessionRejected: true, javascriptFailure: false, tokenRequired: false, formatsMissing: true,
+  });
+});
 
 test('extractor diagnostics classify failures without exposing raw output', () => {
   assert.match(extractionFailure('Sign in to confirm you are not a bot https://secret.example'), /autenticacion/);

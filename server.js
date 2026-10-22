@@ -46,7 +46,20 @@ function audioUrl(raw) {
   return url.href;
 }
 
+export function extractionSignals(stderr = '') {
+  return {
+    sessionRejected: /cookies?.*(?:expired|invalid|no longer valid)|(?:expired|invalid).*cookies?/i.test(stderr),
+    javascriptFailure: /challenge solving failed|n challenge|nsig extraction failed|no supported JavaScript|EJS.*(?:missing|not found|unavailable)/i.test(stderr),
+    tokenRequired: /PO Token|po_token/i.test(stderr),
+    formatsMissing: /requested format.*not available|no video formats/i.test(stderr),
+  };
+}
+
 export function extractionFailure(stderr = '') {
+  const signals = extractionSignals(stderr);
+  if (signals.sessionRejected) return 'YouTube rechazo las cookies de sesion. Renueva el archivo secreto en Render.';
+  if (signals.javascriptFailure) return 'Fallo el componente JavaScript del extractor. Revisa yt-dlp y su runtime en el backend.';
+  if (signals.tokenRequired && signals.formatsMissing) return 'YouTube no ofrecio el audio solicitado y el extractor informa un requisito de PO Token. Revisa los logs del backend.';
   if (/sign in|confirm.*bot|login required|authentication/i.test(stderr)) {
     return 'YouTube exige autenticacion para esta solicitud desde el hosting.';
   }
@@ -94,7 +107,7 @@ export async function withCookieFile(source, action) {
 export async function extract(target, { search = false } = {}) {
   return withCookieFile(process.env.YTDLP_COOKIES_FILE, cookieFile => new Promise((resolve, reject) => {
     console.info('[sirilo-music] extraccion:', search ? 'busqueda' : 'audio', 'cookies:', cookieFile ? 'cargadas' : 'sin configurar');
-    const args = ['-m', 'yt_dlp', '--ignore-config', '--no-warnings', '--no-playlist',
+    const args = ['-m', 'yt_dlp', '--ignore-config', '--no-playlist',
       '--skip-download', '--socket-timeout', '12', '--retries', '1',
       '--extractor-retries', '1', '--js-runtimes', 'node', '--dump-single-json'];
     if (search) args.push('--flat-playlist');
@@ -128,6 +141,7 @@ export async function extract(target, { search = false } = {}) {
     });
     child.on('close', code => {
       if (code !== 0) {
+        console.error('[sirilo-music] diagnostico:', JSON.stringify(extractionSignals(diagnostic)));
         const detail = extractionFailure(diagnostic);
         console.error('[sirilo-music] yt-dlp:', detail);
         return finish(new ServiceError(502, detail));

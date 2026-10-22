@@ -1,7 +1,7 @@
 FROM node:22-bookworm-slim AS javascript
 FROM python:3.12-slim-bookworm
 COPY --from=javascript /usr/local/bin/node /usr/local/bin/node
-RUN pip install --no-cache-dir "yt-dlp[default]"
+RUN pip install --no-cache-dir --upgrade "yt-dlp[default]" && python -m yt_dlp --version && node --version
 WORKDIR /app
 COPY package.json server.js ./
 RUN useradd --create-home app
